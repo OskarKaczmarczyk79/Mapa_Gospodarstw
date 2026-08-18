@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="./firebase-config.js"></script>
 
   <style>
     body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
@@ -25,17 +26,7 @@
   <script type="text/babel" data-type="module">
     const { useState, useEffect, useRef } = React;
 
-    // --- 1. TWOJA KONFIGURACJA FIREBASE ---
-    const firebaseConfig = {
-      apiKey: "AIzaSyC6Xe4wpjXySpnEPsm4F6fRXGdYBzDqLwU",
-      authDomain: "mapa-2c4c2.firebaseapp.com",
-      projectId: "mapa-2c4c2",
-      storageBucket: "mapa-2c4c2.firebasestorage.app",
-      messagingSenderId: "998091348883",
-      appId: "1:998091348883:web:3107f273c1ca212278e666",
-      measurementId: "G-4N2JCEQLHV"
-    };
-    // ---------------------------------------
+    const firebaseConfig = window.FIREBASE_CONFIG;
 
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
