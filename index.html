@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgroMapa - Panel</title>
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    .leaflet-container { z-index: 1; }
+    .custom-tooltip { background: rgba(255, 255, 255, 0.95); border: none; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" data-type="module">
+    const { useState, useEffect, useRef } = React;
+
+    // --- 1. TWOJA KONFIGURACJA FIREBASE ---
+    const firebaseConfig = {
+      apiKey: "AIzaSyC6Xe4wpjXySpnEPsm4F6fRXGdYBzDqLwU",
+      authDomain: "mapa-2c4c2.firebaseapp.com",
+      projectId: "mapa-2c4c2",
+      storageBucket: "mapa-2c4c2.firebasestorage.app",
+      messagingSenderId: "998091348883",
+      appId: "1:998091348883:web:3107f273c1ca212278e666",
+      measurementId: "G-4N2JCEQLHV"
+    };
+    // ---------------------------------------
+
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+    import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    let app, auth, db;
+    try {
+      app = initializeApp(firebaseConfig);
+      auth = getAuth(app);
+      db = getFirestore(app);
+    } catch(e) {
+      console.error("Firebase config error", e);
+    }
+
+    const DAIRY_COLORS = {
+      // Wyjątek: gospodarka bez mleczarni (zarezerwowany kolor szary)
+    'Brak': '#9ca3af',
+    
+    // Główne mleczarnie z Twojego kodu (każda ma swój unikalny kolor)
+    'Piątnica': '#22c55e',       // Zielony
+    'Mlekovita': '#eab308',      // Żółty
+    'Mlekpol': '#3b82f6',        // Jasnoniebieski
+    'Łaciate': '#1d4ed8',        // Ciemnoniebieski
+    'Polmlek': '#ef4444',        // Czerwony
+    'Spomlek': '#f97316',        // Pomarańczowy
+    'Danone': '#06b6d4',         // Turkusowy
+    'Pasłęk': '#a855f7',         // Fioletowy
+    'Łowicz': '#ec4899',         // Różowy
+    'Gostyń': '#14b8a6',         // Mintowy
+    'Maluta': '#6366f1',         // Indygo
+    'Lactalis': '#f43f5e',       // Karmazynowy
+    'Zott': '#10b981',           // Szmaragdowy
+    'Koło OSM': '#84cc16',       // Limonkowy
+    'Sierpc': '#059669',         // Ciemnozielony
+    'Hochland': '#b45309',       // Bursztynowy
+    'Włoszczowa': '#d946ef',     // Magenta
+    'Bakoma': '#0284c7',         // Jasnolazurowy
+    'Müller': '#475569',         // Łupkowy
+    'Bieruń OSM': '#1e293b'      // Ciemnogranatowy 
+    };
+
+    const DAIRY_LOCATIONS = {
+      // Okręgowa Spółdzielnia Mleczarska w Piątnicy [1, 2]
+      'Piątnica - Piątnica (Siedziba)': { lat: 53.195, lon: 22.095 },
+      'Piątnica - Ostrołęka': { lat: 53.078, lon: 21.595 },
+
+      // Spółdzielnia Mleczarska Mlekovita [3, 4]
+      'Mlekovita - Wysokie Mazowieckie (Centrala)': { lat: 52.912, lon: 22.497 },
+      'Mlekovita - Baranowo': { lat: 53.272, lon: 21.141 },
+      'Mlekovita - Biała Podlaska': { lat: 52.033, lon: 23.153 },
+      'Mlekovita - Białystok': { lat: 53.115, lon: 23.125 },
+      'Mlekovita - Bielsk Podlaski': { lat: 52.762, lon: 23.187 },
+      'Mlekovita - Brzesko': { lat: 49.976, lon: 20.618 },
+      'Mlekovita - Chrzanów': { lat: 50.138, lon: 19.395 },
+      'Mlekovita - Czarnków': { lat: 52.900, lon: 16.551 },
+      'Mlekovita - Działdowo': { lat: 53.242, lon: 20.180 },
+      'Mlekovita - Goręczyno': { lat: 54.275, lon: 18.175 },
+      'Mlekovita - Gorlice': { lat: 49.658, lon: 21.164 },
+      'Mlekovita - Kalisz': { lat: 51.781, lon: 18.082 },
+      'Mlekovita - Kamienna Góra': { lat: 50.785, lon: 16.035 },
+      'Mlekovita - Kluczbork': { lat: 50.985, lon: 18.214 },
+      'Mlekovita - Koszalin': { lat: 54.184, lon: 16.195 },
+      'Mlekovita - Kościan': { lat: 52.083, lon: 16.643 },
+      'Mlekovita - Krosno': { lat: 49.684, lon: 21.768 },
+      'Mlekovita - Lubawa': { lat: 53.504, lon: 19.743 },
+      'Mlekovita - Łódź': { lat: 51.738, lon: 19.525 },
+      'Mlekovita - Morąg': { lat: 53.913, lon: 19.923 },
+      'Mlekovita - Ostrowiec Świętokrzyski': { lat: 50.925, lon: 21.405 },
+      'Mlekovita - Pilica': { lat: 50.468, lon: 19.655 },
+      'Mlekovita - Pyrzyce': { lat: 53.145, lon: 14.898 },
+      'Mlekovita - Rzeszów': { lat: 50.063, lon: 22.012 },
+      'Mlekovita - Sanok': { lat: 49.565, lon: 22.228 },
+      'Mlekovita - Świecie': { lat: 53.405, lon: 18.435 },
+      'Mlekovita - Tomaszów Lubelski': { lat: 50.455, lon: 23.423 },
+      'Mlekovita - Toruń': { lat: 53.031, lon: 18.663 },
+      'Mlekovita - Trzebownisko': { lat: 50.078, lon: 22.045 },
+      'Mlekovita - Warszawa': { lat: 52.185, lon: 20.947 },
+      'Mlekovita - Wrocław': { lat: 51.145, lon: 16.945 },
+      'Mlekovita - Wolsztyn': { lat: 52.115, lon: 16.121 },
+      'Mlekovita - Zakopane': { lat: 49.288, lon: 19.934 },
+
+      // Spółdzielnia Mleczarska Mlekpol [5]
+      'Mlekpol - Grajewo (Centrala)': { lat: 53.645, lon: 22.463 },
+      'Mlekpol - Bydgoszcz': { lat: 53.148, lon: 17.935 },
+      'Mlekpol - Dąbrowa Białostocka': { lat: 53.645, lon: 23.345 },
+      'Mlekpol - Kolno': { lat: 53.408, lon: 21.932 },
+      'Mlekpol - Mrągowo (OZPM)': { lat: 53.861, lon: 21.312 },
+      'Mlekpol - Mrągowo (OZPSWM)': { lat: 53.856, lon: 21.284 },
+      'Mlekpol - Radom': { lat: 51.385, lon: 21.145 },
+      'Mlekpol - Sejny': { lat: 54.105, lon: 23.353 },
+      'Mlekpol - Sokółka': { lat: 53.402, lon: 23.513 },
+      'Mlekpol - Strzelce Krajeńskie': { lat: 52.875, lon: 15.535 },
+      'Mlekpol - Gorzów Wielkopolski': { lat: 52.724, lon: 15.195 },
+      'Mlekpol - Zambrów': { lat: 52.985, lon: 22.245 },
+      'Mlekpol - Zgorzelec': { lat: 51.151, lon: 15.011 },
+      'Mlekpol - Zwoleń': { lat: 51.355, lon: 21.595 },
+      'Mlekpol - Suwałki': { lat: 54.084, lon: 22.925 },
+      'Mlekpol - Stawiski': { lat: 53.381, lon: 22.155 },
+      'Mlekpol - Łódź': { lat: 51.775, lon: 19.385 },
+
+      // Grupa Polmlek [6, 7]
+      'Polmlek - Pułtusk (Centrala)': { lat: 52.695, lon: 21.095 },
+      'Polmlek - Lidzbark Warmiński': { lat: 54.125, lon: 20.575 },
+      'Polmlek - Maków Mazowiecki': { lat: 52.865, lon: 21.085 },
+      'Polmlek - Lipsko': { lat: 51.158, lon: 21.655 },
+      'Polmlek - Gościno': { lat: 54.035, lon: 15.655 },
+      'Polmlek - Grudziądz': { lat: 53.475, lon: 18.765 },
+      'Polmlek - Warlubie': { lat: 53.585, lon: 18.625 },
+      'Polmlek - Raciąż': { lat: 52.785, lon: 20.125 },
+      'Polmlek - Końskie': { lat: 51.195, lon: 20.405 },
+      'Polmlek - Piotrków Kujawski': { lat: 52.555, lon: 18.505 },
+      'Polmlek - Tarnów': { lat: 50.015, lon: 20.995 },
+      'Polmlek - Wolsztyn': { lat: 52.115, lon: 16.121 },
+      'Polmlek - Murowana Goślina': { lat: 52.565, lon: 17.005 },
+      'Polmlek - Gdynia': { lat: 54.535, lon: 18.525 },
+      'Polmlek - Zalesie': { lat: 53.545, lon: 17.655 },
+      'Polmlek - Goliszew': { lat: 51.875, lon: 18.155 },
+      
+      // Spółdzielcza Mleczarnia Spomlek
+      'Spomlek - Radzyń Podlaski (Centrala)': { lat: 51.785, lon: 22.618 },
+      'Spomlek - Chojnice (Oddział)': { lat: 53.698, lon: 17.545 },
+      'Spomlek - Młynary (Oddział)': { lat: 54.188, lon: 19.723 },
+      'Spomlek - Parczew (Oddział)': { lat: 51.643, lon: 22.901 },
+      'Spomlek - Bychawa (Oddział)': { lat: 51.015, lon: 22.532 },
+
+      // Danone Sp. z o.o. [8, 9, 10]
+      'Danone - Warszawa (Centrala)': { lat: 52.203, lon: 21.041 },
+      'Danone - Bieruń (Hub Logistyczny)': { lat: 50.091, lon: 19.070 },
+
+      // Sery ICC Pasłęk [11, 12]
+      'Pasłęk - Pasłęk (Centrum Logistyczne)': { lat: 54.062, lon: 19.658 },
+
+      // Okręgowa Spółdzielnia Mleczarska w Łowiczu [13]
+      'Łowicz - Łowicz (Centrala)': { lat: 52.105, lon: 19.928 },
+      'Łowicz - Toruń (Hurtownia)': { lat: 53.025, lon: 18.625 },
+      'Łowicz - Lubin (Hurtownia Milekta)': { lat: 51.405, lon: 16.175 },
+      'Łowicz - Toruń (Zakład Mleczarski)': { lat: 53.031, lon: 18.632 },
+      'Łowicz - Kutno (Zorina)': { lat: 52.225, lon: 19.345 },
+
+      // Spółdzielnia Mleczarska w Gostyniu
+      'Gostyń - Gostyń (Centrala)': { lat: 51.878, lon: 17.012 },
+
+      // Okręgowa Spółdzielnia Mleczarska Maluta [14, 15]
+      'Maluta - Nowy Dwór Gdański (Hurtownia)': { lat: 54.212, lon: 19.112 },
+      'Maluta - Stegna (Hurtownia)': { lat: 54.325, lon: 19.111 },
+
+      // Lactalis Polska Sp. z o.o. [16, 17]
+      'Lactalis - Warszawa (Centrala)': { lat: 52.195, lon: 21.025 },
+      'Lactalis - Siemiatycze (POLSER)': { lat: 52.428, lon: 22.862 },
+      'Lactalis - Winnica': { lat: 52.645, lon: 20.932 },
+      'Lactalis - Kozienice (Obory)': { lat: 51.585, lon: 21.545 },
+      'Lactalis - Rzepin (Latteria Tinis)': { lat: 52.345, lon: 14.832 },
+
+      // Zott Polska Sp. z o.o. [18, 19]
+      'Zott - Opole (Centralny Hub)': { lat: 50.665, lon: 17.955 },
+
+      // Okręgowa Spółdzielnia Mleczarska w Kole [20, 21]
+      'Koło OSM - Koło (Centralny)': { lat: 52.205, lon: 18.641 },
+      'Koło OSM - Koło (Pomocniczy)': { lat: 52.215, lon: 18.648 },
+      'Koło OSM - Ostrów Wielkopolski': { lat: 51.651, lon: 17.825 },
+
+      // Okręgowa Spółdzielnia Mleczarska w Sierpcu
+      'Sierpc - Sierpc (Centralne CD)': { lat: 52.855, lon: 19.665 },
+
+      // Hochland Polska Sp. z o.o. [22, 23]
+      'Hochland - Poznań (Centrala)': { lat: 52.385, lon: 16.865 },
+      'Hochland - Kaźmierz (Oddział)': { lat: 52.518, lon: 16.582 },
+      'Hochland - Węgrów (Oddział)': { lat: 52.395, lon: 22.015 },
+
+      // Okręgowa Spółdzielnia Mleczarska we Włoszczowie [24, 25, 26]
+      'Włoszczowa - Włoszczowa (Centrala)': { lat: 50.852, lon: 19.972 },
+      'Włoszczowa - Pawłowice (Oddział)': { lat: 49.955, lon: 18.725 },
+      'Włoszczowa - Lubliniec (Hub)': { lat: 50.668, lon: 18.685 },
+
+      // Bakoma Sp. z o.o.
+      'Bakoma - Warszawa (Centrala)': { lat: 52.215, lon: 20.895 },
+      'Bakoma - Elżbietów (Centrum Logistyczne)': { lat: 52.202, lon: 20.301 },
+      'Bakoma - Wrocław (RCD)': { lat: 51.075, lon: 16.965 },
+
+      // Müller Dairy Polska Sp. z o.o. [27, 28, 29]
+      'Müller - Poznań (Strzeszyńska)': { lat: 52.445, lon: 16.895 },
+      'Müller - Poznań (Naramowicka)': { lat: 52.438, lon: 16.948 },
+
+      // Okręgowa Spółdzielnia Mleczarska w Bieruniu [30]
+      'Bieruń OSM - Bieruń (Centralne CD)': { lat: 50.088, lon: 19.055 }
+    }; // Usunięto tutaj dodatkowy `};`, który powodował błąd
+
+    const getDairyColor = (dairyName) => {
+      if (!dairyName || dairyName.trim() === '') return DAIRY_COLORS['Brak'];
+      const nameLower = dairyName.toLowerCase();
+      for (const [key, color] of Object.entries(DAIRY_COLORS)) {
+        if (nameLower.includes(key.toLowerCase())) return color;
+      }
+      return '#a855f7'; 
+    };
+
+    const getDistance = (lat1, lon1, lat2, lon2) => {
+      const R = 6371;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
+
+    const geocodeAddress = async (street, city) => {
+      try {
+        let res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(`${street}, ${city}, Poland`)}&limit=1`);
+        let data = await res.json();
+        if (data && data.length > 0) return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+        res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(`${city}, Poland`)}&limit=1`);
+        data = await res.json();
+        if (data && data.length > 0) return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+        return null;
+      } catch (err) { return null; }
+    };
+
+    function App() {
+      const [user, setUser] = useState(null);
+      const [isAuthChecking, setIsAuthChecking] = useState(true);
+      const [farms, setFarms] = useState([]);
+      const [isConfigError, setIsConfigError] = useState(false);
+      
+      const [loginEmail, setLoginEmail] = useState('');
+      const [loginPassword, setLoginPassword] = useState('');
+      const [authError, setAuthError] = useState('');
+
+      const [formData, setFormData] = useState({ id: '', readerName: '', street: '', postalCode: '', city: '', dairyCompany: '' });
+      const [isSubmitting, setIsSubmitting] = useState(false);
+      const [formError, setFormError] = useState('');
+
+      const [filterDairy, setFilterDairy] = useState('All');
+      const [showPlants, setShowPlants] = useState(true);
+
+      const mapContainerRef = useRef(null);
+      const mapRef = useRef(null);
+      const markersLayerRef = useRef(null);
+      const plantsLayerRef = useRef(null);
+
+      useEffect(() => { lucide.createIcons(); });
+
+      useEffect(() => {
+        if (!auth || firebaseConfig.apiKey.includes('TWÓJ_API_KEY')) {
+          setIsConfigError(true); setIsAuthChecking(false); return;
+        }
+        const unsubscribe = onAuthStateChanged(auth, (usr) => { setUser(usr); setIsAuthChecking(false); });
+        return () => unsubscribe && unsubscribe();
+      }, []);
+
+      useEffect(() => {
+        if (!user || !db) return;
+        const farmsColRef = collection(db, 'farms');
+        const unsubscribe = onSnapshot(farmsColRef, (snapshot) => {
+          const farmsData = [];
+          snapshot.forEach(doc => farmsData.push({ dbId: doc.id, ...doc.data() }));
+          setFarms(farmsData); setFormError('');
+        }, (error) => {
+          if(error.code === 'permission-denied') setFormError('Brak uprawnień bazy danych.');
+        });
+        return () => unsubscribe();
+      }, [user]);
+
+      // --- Renderowanie mapy (Filtrowanie i markery) ---
+      useEffect(() => {
+        if (!mapContainerRef.current || !user) return;
+
+        if (!mapRef.current) {
+          mapRef.current = L.map(mapContainerRef.current).setView([52.0693, 19.4803], 6);
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(mapRef.current);
+          markersLayerRef.current = L.layerGroup().addTo(mapRef.current);
+          plantsLayerRef.current = L.layerGroup().addTo(mapRef.current);
+        }
+
+        const layerGroup = markersLayerRef.current;
+        const plantsGroup = plantsLayerRef.current;
+        layerGroup.clearLayers();
+        plantsGroup.clearLayers();
+
+        // 1. Rysowanie zakładów mleczarskich (jeśli włączone)
+        if (showPlants) {
+          Object.entries(DAIRY_LOCATIONS).forEach(([dairyName, coords]) => {
+            // Ukrywa fabrykę, jeśli w filtrze wybrano inną mleczarnię
+            if (filterDairy !== 'All' && !dairyName.toLowerCase().includes(filterDairy.toLowerCase())) return;
+
+            const color = getDairyColor(dairyName);
+            // Fabryki jako kwadratowe ikony
+            const iconHtml = `<div style="background-color: ${color}; width: 18px; height: 18px; border: 2px solid white; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"></path></svg></div>`;
+            const customIcon = L.divIcon({ html: iconHtml, className: '', iconSize: [18, 18], iconAnchor: [9, 9] });
+            
+            const marker = L.marker([coords.lat, coords.lon], { icon: customIcon });
+            marker.bindTooltip(`<strong>Zakład: ${dairyName}</strong>`, { direction: 'top', className: 'custom-tooltip' });
+            marker.addTo(plantsGroup);
+          });
+        }
+
+        // 2. Filtrowanie i rysowanie gospodarstw
+        const filteredFarms = filterDairy === 'All' 
+          ? farms 
+          : farms.filter(f => f.dairyCompany?.toLowerCase().includes(filterDairy.toLowerCase()));
+
+        filteredFarms.forEach(farm => {
+          if (!farm.lat || !farm.lon) return;
+          const markerColor = getDairyColor(farm.dairyCompany);
+          const marker = L.circleMarker([farm.lat, farm.lon], { radius: 8, fillColor: markerColor, color: '#ffffff', weight: 2, opacity: 1, fillOpacity: 0.9 });
+
+          window[`deleteFarm_${farm.dbId}`] = async () => {
+            try { await deleteDoc(doc(db, 'farms', farm.dbId)); } catch (e) { alert("Błąd usuwania."); }
+          };
+
+          const name = farm.readerName || 'Nieznany Gospodarz';
+          const dairy = farm.dairyCompany || 'Brak mleczarni';
+          
+          const popupContent = `
+            <div class="text-center p-2 min-w-[120px]" style="font-family: sans-serif;">
+              <h3 class="font-bold text-base leading-tight mb-1 text-gray-800">${name}</h3>
+              <p class="text-sm font-semibold mb-3" style="color: ${markerColor};">${dairy}</p>
+              <button onclick="window.deleteFarm_${farm.dbId}()" class="text-xs text-red-500 hover:text-red-700 w-full border-t border-gray-200 pt-2">Usuń wpis</button>
+            </div>
+          `;
+
+          marker.bindTooltip(`
+            <div class="text-center">
+              <div class="font-bold text-sm">${name}</div>
+              <div class="text-xs" style="color: ${markerColor};">${dairy}</div>
+            </div>
+          `, { direction: 'top', className: 'custom-tooltip', opacity: 1 });
+          
+          marker.bindPopup(popupContent);
+          marker.addTo(layerGroup);
+        });
+      }, [farms, user, filterDairy, showPlants]);
+
+      const handleLogin = async (e) => {
+        e.preventDefault();
+        try { await signInWithEmailAndPassword(auth, loginEmail, loginPassword); } 
+        catch (err) { setAuthError('Błąd logowania. Sprawdź e-mail i hasło.'); }
+      };
+
+      const handleInputChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setFormError('');
+        if (!formData.id || !formData.city) return setFormError('ID i miasto są wymagane.');
+        setIsSubmitting(true);
+        try {
+          const coords = await geocodeAddress(formData.street, formData.city);
+          if (!coords) { setFormError('Nie znaleziono adresu.'); setIsSubmitting(false); return; }
+          const newFarm = { ...formData, lat: coords.lat, lon: coords.lon, createdAt: new Date().toISOString() };
+          await setDoc(doc(collection(db, 'farms')), newFarm);
+          setFormData({ id: '', readerName: '', street: '', postalCode: '', city: '', dairyCompany: '' });
+          if (mapRef.current) mapRef.current.setView([coords.lat, coords.lon], 11);
+        } catch (err) { setFormError('Błąd zapisu w bazie.'); } 
+        finally { setIsSubmitting(false); }
+      };
+
+      if (isConfigError) return (<div className="flex justify-center items-center h-screen bg-slate-50"><p>Brak konfiguracji Firebase w pliku.</p></div>);
+      if (!isAuthChecking && !user) {
+        return (
+          <div className="flex justify-center items-center h-screen bg-slate-200">
+            <div className="bg-white p-8 rounded-xl shadow-lg w-96">
+              <h2 className="text-2xl font-bold text-center text-gray-800 mb-6">Logowanie</h2>
+              <form onSubmit={handleLogin} className="space-y-4">
+                <input type="email" placeholder="E-mail" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} className="w-full px-3 py-2 border rounded" required />
+                <input type="password" placeholder="Hasło" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} className="w-full px-3 py-2 border rounded" required />
+                {authError && <div className="text-red-600 text-sm">{authError}</div>}
+                <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded">Zaloguj</button>
+              </form>
+            </div>
+          </div>
+        );
+      }
+
+      // Unikalna lista mleczarni dla filtra (połączona z wpisów rolników oraz z wbudowanej bazy zakładów)
+      const locationBrands = Object.keys(DAIRY_LOCATIONS).map(key => key.split(' - ')[0].trim());
+      const colorBrands = Object.keys(DAIRY_COLORS).filter(k => k !== 'Brak');
+      const farmBrands = farms.map(f => f.dairyCompany).filter(d => d && d.trim() !== '');
+      
+      const uniqueDairies = [...new Set([...colorBrands, ...locationBrands, ...farmBrands])].sort();
+
+      return (
+        <div className="flex flex-col md:flex-row w-full min-h-screen bg-slate-100">
+          <div className="w-full md:w-80 lg:w-96 bg-white shadow-xl z-10 flex flex-col h-auto md:h-screen overflow-y-auto">
+            <div className="p-5 bg-blue-600 text-white flex justify-between items-center">
+              <h1 className="text-xl font-bold flex items-center gap-2"><i data-lucide="map"></i> AgroMapa</h1>
+              <button onClick={() => signOut(auth)} className="bg-blue-700 p-2 rounded text-xs" title="Wyloguj"><i data-lucide="log-out" className="w-4 h-4"></i></button>
+            </div>
+
+            <div className="p-6 flex-1 space-y-6">
+              {/* Sekcja Filtrów i Widoczności */}
+              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+                  <i data-lucide="filter" className="w-4 h-4"></i> Filtry i Widoczność
+                </h3>
+                <div className="space-y-3">
+                  <button onClick={() => setShowPlants(!showPlants)} 
+                    className={`w-full py-2 px-3 text-xs font-semibold rounded flex justify-between items-center transition border ${showPlants ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-white text-gray-600 border-gray-300'}`}>
+                    <span>Znaczniki zakładów (Fabryki)</span>
+                    {showPlants ? <i data-lucide="eye" className="w-4 h-4"></i> : <i data-lucide="eye-off" className="w-4 h-4"></i>}
+                  </button>
+                  
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Pokaż rolników mleczarni:</label>
+                    <select value={filterDairy} onChange={(e) => setFilterDairy(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded text-sm bg-white">
+                      <option value="All">-- Wszystkie Gospodarstwa --</option>
+                      {uniqueDairies.map(dairy => (
+                        <option key={dairy} value={dairy}>{dairy}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Formularz Dodawania */}
+              <div>
+                <h2 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2 border-b pb-2">
+                  <i data-lucide="plus" className="text-blue-500 w-4 h-4"></i> Dodaj Gospodarstwo
+                </h2>
+                {formError && <div className="mb-3 p-2 bg-red-50 text-red-700 text-xs rounded">{formError}</div>}
+                
+                <form onSubmit={handleSubmit} className="space-y-3">
+                  <input type="text" name="id" placeholder="Kod ID *" value={formData.id} onChange={handleInputChange} className="w-full px-3 py-2 border rounded text-sm" required />
+                  <input type="text" name="readerName" placeholder="Gospodarz (Nazwa)" value={formData.readerName} onChange={handleInputChange} className="w-full px-3 py-2 border rounded text-sm" />
+                  <input type="text" name="street" placeholder="Ulica" value={formData.street} onChange={handleInputChange} className="w-full px-3 py-2 border rounded text-sm" />
+                  <input type="text" name="city" placeholder="Miasto *" value={formData.city} onChange={handleInputChange} className="w-full px-3 py-2 border rounded text-sm" required />
+                  <input type="text" name="dairyCompany" placeholder="Mleczarnia (np. Piątnica)" value={formData.dairyCompany} onChange={handleInputChange} className="w-full px-3 py-2 border rounded text-sm" />
+                  
+                  <button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded flex justify-center items-center gap-2">
+                    {isSubmitting ? 'Zapisywanie...' : 'Zapisz na Mapie'}
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex-1 relative min-h-[500px] md:h-screen w-full z-0">
+            <div ref={mapContainerRef} className="absolute inset-0 w-full h-full bg-slate-200" />
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
